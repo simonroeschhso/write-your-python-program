@@ -3,66 +3,8 @@
 import * as assert from 'assert';
 
 import { outgoingRefs, rootRefs, visibleAddresses } from '../../programflow-visualization/reachability';
-import type { Address, BackendTraceElem, HeapValue, NamedValue, StackElem, Value } from '../../programflow-visualization/types';
-
-// Fixture helpers -------------------------------------------------------------
-
-function ref(address: Address): Value {
-  return { type: 'ref', value: address };
-}
-
-function int(value: number): Value {
-  return { type: 'int', value };
-}
-
-function str(value: string): Value {
-  return { type: 'str', value };
-}
-
-function local(name: string, value: Value): NamedValue {
-  return { ...value, name };
-}
-
-function frame(frameName: string, locals: Array<NamedValue>): StackElem {
-  return { frameName, locals };
-}
-
-function list(...values: Array<Value>): HeapValue {
-  return { type: 'list', value: values };
-}
-
-function instance(name: string, fields: Record<string, Value>): HeapValue {
-  return { type: 'instance', name, value: fields as unknown as Map<string, Value> };
-}
-
-function dict(entries: Array<[Value, Value]>): HeapValue {
-  const keys: Record<string, Value> = {};
-  const values: Record<string, Value> = {};
-  entries.forEach(([key, value], index) => {
-    keys[index] = key;
-    values[index] = value;
-  });
-  return {
-    type: 'dict',
-    keys: keys as unknown as Map<any, Value>,
-    value: values as unknown as Map<any, Value>,
-  };
-}
-
-/**
- * `heap` is declared as a `Map` but arrives as a plain object after IPC/JSON -
- * the fixtures deliberately reproduce the runtime shape, not the declared one.
- */
-function step(stack: Array<StackElem>, heap: Record<number, HeapValue>): BackendTraceElem {
-  return {
-    line: 1,
-    filePath: 'example.py',
-    stack,
-    heap: heap as unknown as BackendTraceElem['heap'],
-    stdout: '',
-    traceback: undefined,
-  };
-}
+import type { Address, BackendTraceElem } from '../../programflow-visualization/types';
+import { dict, frame, instance, int, list, local, ref, step, str } from './fixtures';
 
 function visible(elem: BackendTraceElem, collapsed: Array<Address> = []): Array<Address> {
   return [...visibleAddresses(elem, new Set(collapsed))].sort((a, b) => a - b);

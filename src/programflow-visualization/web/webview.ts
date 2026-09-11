@@ -1,7 +1,5 @@
 // Render and control the program-flow visualization UI inside the webview
-import { HTMLGenerator } from "./html-generator";
-import LinkerLine from "linkerline";
-import type { Address, BackendTraceElem, FrontendTraceElem } from "../types";
+import type { Address, BackendTraceElem } from "../types";
 import { clearLayoutCache, prewarm, renderStep } from "./elk-view";
 import { attachPanZoom, type PanZoom } from "./pan-zoom";
 
@@ -20,27 +18,9 @@ type AppendMsg = {
 // Optional example trace format (designer mode)
 type StaticTrace = { complete: boolean; trace: BackendTraceElem[] };
 
-let refLines: any[] = [];
 let trace: BackendTraceElem[] = [];
 let traceComplete = false;
 let traceIndex = 0;
-
-/**
- * The ELK pipeline is the renderer (elk-task/elk-plan.md 7.4). `html-generator.ts` is kept
- * as an escape hatch until it is deleted in the cleanup step; opt out with
- * `window.__PROGRAMFLOW_ELK__ = false` or `#legacy` in web-dev mode.
- */
-const useElk = (() => {
-  const anyWin = window as any;
-  if (typeof anyWin.__PROGRAMFLOW_ELK__ === "boolean") {
-    return anyWin.__PROGRAMFLOW_ELK__ as boolean;
-  }
-  try {
-    return !window.location.hash.includes("legacy");
-  } catch {
-    return true;
-  }
-})();
 
 /** Heap objects the user has folded away. Kept across steps on purpose. */
 const collapsed = new Set<Address>();
@@ -50,8 +30,6 @@ let panZoom: PanZoom | undefined;
 let lastBounds = { width: 0, height: 0 };
 
 type NavType = "first" | "prev" | "next" | "last";
-
-const gen = new HTMLGenerator();
 
 //DOM helpers
 function $(sel: string): HTMLElement {
@@ -93,24 +71,14 @@ function renderCurrent() {
 
   // Nothing to show yet
   if (trace.length === 0) {
-    $("#stdout-log").innerHTML = "";
-    clearArrows();
+    $("#stdout-log").textContent = "";
+    $("#elk-canvas").textContent = "";
     return;
   }
 
   const backendElem = trace[traceIndex];
-
-  if (useElk) {
-    updateStdout(backendElem);
-    void renderElk(backendElem);
-    return;
-  }
-
-  const frontendElem = gen.generateHTML(backendElem);
-
-  updateVisualization(frontendElem);
-  updateIndent(frontendElem);
-  updateRefArrows(frontendElem);
+  updateStdout(backendElem);
+  void renderElk(backendElem);
 }
 
 function updateStdout(elem: BackendTraceElem) {
@@ -196,130 +164,11 @@ function slideTo(rawValue: string) {
  */
 function scrubTo(rawValue: string) {
   traceIndex = Number(rawValue) || 0;
-  if (!useElk) {
-    slideTo(rawValue);
-    return;
-  }
   updateControls();
   if (trace.length > 0) {
     updateStdout(trace[traceIndex]);
   }
   postCurrentHighlight();
-}
-
-function updateVisualization(traceElem: FrontendTraceElem) {
-  clearArrows();
-
-  const frames = document.getElementById("frames");
-  const objects = document.getElementById("objects");
-  const stdoutLog = document.getElementById("stdout-log");
-
-  if (!frames || !objects || !stdoutLog) {
-    throw new Error("Missing required visualization containers");
-  }
-
-  frames.innerHTML = traceElem.stackHTML;
-  objects.innerHTML = traceElem.heapHTML;
-  stdoutLog.innerHTML = traceElem.outputState;
-  stdoutLog.scrollTo(0, stdoutLog.scrollHeight);
-}
-
-function updateIndent(traceElem: FrontendTraceElem) {
-  const heapTags = traceElem.heapHTML.match(/(?<=startPointer)[0-9]+/g);
-  if (heapTags) {
-    heapTags.forEach((tag: string) => {
-      const element = document.getElementById("objectItem" + tag);
-      if (element) {element.classList.add("object-intendation");}
-    });
-  }
-}
-
-//Arrows
-function clearArrows() {
-  refLines.forEach((l) => {
-    try {
-      l.remove();
-    } catch {}
-  });
-  refLines = [];
-}
-
-function updateRefArrows(traceElem: FrontendTraceElem) {
-  const tags = getCurrentTags(traceElem);
-  if (!tags) { return; }
-
-  requestAnimationFrame(() => {
-    const parent = document.getElementById("viz");
-    if (!parent) { return; }
-
-    const usable = tags.filter((t: any) => {
-      const a = t.elem1 as HTMLElement | null | undefined;
-      const b = t.elem2 as HTMLElement | null | undefined;
-      return !!a && !!b && a.isConnected && b.isConnected;
-    });
-
-    const lines: any[] = [];
-    for (const t of usable) {
-      try {
-        lines.push(
-          new (LinkerLine as any)({
-            parent,
-            start: t.elem1,
-            end: t.elem2,
-            size: 2,
-            path: "magnet",
-            startSocket: "right",
-            endSocket: "left",
-            startPlug: "square",
-            startSocketGravity: [50, -10],
-            endSocketGravity: [-5, -5],
-            endPlug: "arrow1",
-            color: getColor(t),
-          })
-        );
-      } catch (err) {
-        // Keep going if one arrow fails (prevents breaking the whole render)
-        console.warn("LinkerLine failed for one tag:", t, err);
-      }
-    }
-
-    refLines = lines;
-  });
-}
-
-function getCurrentTags(traceElem: FrontendTraceElem) {
-  const stackTags = traceElem.stackHTML.match(/(?<=id=")(.+)Pointer[0-9]+/g);
-  const heapTags = traceElem.heapHTML.match(/(?<=startPointer)[0-9]+/g);
-  const uniqueId = traceElem.heapHTML.match(/\d+(?=startPointer)/g);
-
-  if (!stackTags) {return;}
-
-  const stackRefs = stackTags.map((tag: string) => {
-    const id = tag.match(/(?<=.*Pointer)[\d]+/g);
-    return {
-      tag: id,
-      elem1: document.getElementById(tag),
-      elem2: document.getElementById("heapEndPointer" + id),
-    };
-  });
-
-  let heapRefs: any[] = [];
-  if (heapTags && uniqueId) {
-    heapRefs = heapTags.map((reference: string, index: number) => {
-      return {
-        tag: reference,
-        elem1: document.getElementById(uniqueId[index] + "startPointer" + reference),
-        elem2: document.getElementById("heapEndPointer" + reference),
-      };
-    });
-  }
-
-  return [...heapRefs, ...stackRefs];
-}
-
-function getColor(tag: any) {
-  const hue = ((0.618033988749895 + Number(tag.tag) / 10) % 1) * 100;
-  return `hsl(${hue}, 60%, 45%)`;
 }
 
 //Incoming events (from vscode-host-adapter.ts)
@@ -342,16 +191,10 @@ window.addEventListener("programflow:append", (e: Event) => {
 
 
 function setupUi() {
-  if (useElk) {
-    $("#legacy-headers").hidden = true;
-    $("#legacy-columns").hidden = true;
-    $("#elk-viewport").hidden = false;
-    $("#fitButton").hidden = false;
-    panZoom = attachPanZoom($("#elk-viewport"), $("#elk-canvas"));
-    watchThemeChanges();
-    // Warm elkjs up while the user is still reading the first step.
-    void prewarm().then(renderCurrent);
-  }
+  panZoom = attachPanZoom($("#elk-viewport"), $("#elk-canvas"));
+  watchThemeChanges();
+  // Warm elkjs up while the user is still reading the first step.
+  void prewarm().then(renderCurrent);
 
   // Disable until first reset arrives
   setDisabled("#nextButton", true);

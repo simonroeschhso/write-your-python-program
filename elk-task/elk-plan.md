@@ -529,13 +529,32 @@ Each step keeps the extension working.
    `FIRST` — frames get a layer to themselves, which is exactly what the two bands assume,
    and it roughly halves layout time (`example.py`: worst step 74 ms → 42 ms, whole trace
    1263 ms → 809 ms).
-8. **Unit tests** in `src/test/unit` for the pure logic — no webview, no ELK run.
-   *Done for the collapse filter*: `src/programflow-visualization/reachability.ts` plus
-   `src/test/unit/reachability.test.ts` (22 cases), run by `npm run test:unit`, which is
-   now part of `npm test`. Still to add once it exists: `buildGraph` structure tests.
-9. **Cleanup**: delete `html-generator.ts`, drop `linkerline`, trim `FrontendTraceElem`,
+8. ~~**Unit tests** in `src/test/unit` for the pure logic — no webview, no ELK run.~~
+   **Done.** `npm run test:unit` (part of `npm test`) now runs 49 cases:
+   `reachability.test.ts` (22) for the collapse filter, and `graph-model.test.ts` (27) for
+   `buildGraph` — node order, frame naming and the current-frame rule, the layer
+   constraint, rows per heap type, port declaration, and the collapse behaviour. Shared
+   fixtures moved to `src/test/unit/fixtures.ts`; it is not a `.test.ts` file, so the mocha
+   glob ignores it.
+
+   Two of these are the definition-of-done criteria expressed as code rather than as
+   something to eyeball: **edge count equals reference count** with nothing collapsed
+   (criterion 2), and **no edge endpoint is a port that no node declares**. The second is
+   what the dict-key bug of step 7 would have failed, so there is also a named regression
+   test for a reference key.
+9. ~~**Cleanup**: delete `html-generator.ts`, drop `linkerline`, trim `FrontendTraceElem`,
    update `src/programflow-visualization/README.md` (its diagram still shows
-   `html-generator.ts` → `innerHTML`), and delete `elk-task/spike/`.
+   `html-generator.ts` → `innerHTML`), and delete `elk-task/spike/`.~~ **Done.** Gone:
+   `web/html-generator.ts`, the `linkerline` dependency and the ~150 lines of
+   `updateVisualization` / `updateIndent` / `updateRefArrows` / `getCurrentTags` /
+   `getColor` that drove it, the `FrontendTrace` and `FrontendTraceElem` types, the
+   `useElk` flag and the `#legacy` escape hatch, the `#legacy-headers` / `#legacy-columns`
+   markup, ~120 lines of CSS that only the HTML strings used, and `elk-task/spike/`. The
+   README now describes the real pipeline. `webview.js` is 1.5 MiB, essentially all elkjs.
+
+   With the HTML strings went the last `innerHTML` assignment in the webview: everything
+   is `textContent` and `createElement` now, so a value that happens to look like markup
+   can no longer be parsed as markup.
 
 ## 8. Decisions at a glance
 
@@ -622,6 +641,8 @@ student list hides edges but removes no nodes. Hence the other three.
     trace does not grow memory without bound (layout cache is LRU-bounded).
 11. `html-generator.ts` deleted, `linkerline` removed from `package.json`,
     `FrontendTraceElem` trimmed, and `src/programflow-visualization/README.md` updated.
+
+Criteria 1-8 have been checked headlessly; **§9.4 is the part that is still outstanding**.
 
 "Runs through `example.py` without errors" is criterion 1 of 11 — it proves the pipeline
 works, not that the feature does.

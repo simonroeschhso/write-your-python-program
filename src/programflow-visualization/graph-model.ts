@@ -50,7 +50,7 @@ export type VizGraph = {
 };
 
 /**
- * Layout options settled by the spike (elk-task/spike/spike.mjs):
+ * Layout options settled by the spike, whose findings are in elk-task/elk-plan.md 7.1:
  * - cycleBreaking stays at its GREEDY default, or the frames' layer constraint throws
  *   as soon as an edge is reversed into a frame (plan 4).
  * - considerModelOrder is deliberately absent: it buys no stability and costs 2.5x

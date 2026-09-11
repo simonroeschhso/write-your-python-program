@@ -18,25 +18,9 @@
 
 <body>
   <div class="column scrollable" id="viz">
-    <div class="row" id="legacy-headers">
-      <div class="column floating-left">
-        <div class="row title">Frames</div>
-        <div class="divider"></div>
-      </div>
-      <div class="column floating-right">
-        <div class="row title">Objects</div>
-        <div class="divider"></div>
-      </div>
-    </div>
-
-    <div class="row" id="legacy-columns">
-      <div class="column floating-left floating-left-content" id="frames"></div>
-      <div class="column floating-right floating-right-content" id="objects"></div>
-    </div>
-
     <!-- ELK-based visualization, see elk-task/elk-plan.md -->
     <!-- #elk-viewport clips and receives the pan/zoom gestures, #elk-canvas is transformed -->
-    <div id="elk-viewport" hidden>
+    <div id="elk-viewport">
       <div id="elk-canvas"></div>
     </div>
   </div>
@@ -66,7 +50,7 @@
         <button class="margin-horizontal" id="nextButton" type="button" aria-label="Go to next step" title="Next step">&#9654</button>
         <button class="margin-horizontal" id="lastButton" type="button" aria-label="Go to last step" title="Last step">&#9197</button>
         <button class="margin-horizontal" id="expandAllButton" type="button" title="Expand every collapsed object" hidden>Expand all</button>
-        <button class="margin-horizontal" id="fitButton" type="button" title="Zoom to fit" hidden>Fit</button>
+        <button class="margin-horizontal" id="fitButton" type="button" title="Zoom to fit">Fit</button>
       </div>
     </div>
 
