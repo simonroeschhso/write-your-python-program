@@ -454,7 +454,48 @@ Each step keeps the extension working.
    `example.py` also has a global name and therefore never disappears: collapsing `group`
    removes Anna and Ben (13 nodes → 11), collapsing `holder` keeps Cleo (she is `shared`),
    collapsing `outer` removes Dan *and* the anonymous inner list. Expand all restores 13.
-6. **Pan/zoom + layout caching + elkjs pre-warm** (§6.5).
+6. ~~**Pan/zoom + layout caching + elkjs pre-warm**~~ **Done** (§6.5). Pre-warm landed in
+   step 3. `#elk-canvas` now sits inside a new `#elk-viewport` (`overflow: hidden`) and a
+   single `transform` on the canvas moves nodes and edges together; `web/pan-zoom.ts` owns
+   it. The step controls and the stdout pane are outside the transform, so they never scale.
+
+   Decisions that came out of building it:
+   - **Auto-fit is a mode, not a one-off.** Fitting only on the first render of a trace
+     looked right and was wrong: step 0 is one 180×110 frame, so it fit at scale 1 and was
+     centred with `translate(610, 360)`; by the last step the graph is 1167×1405 and most
+     of it sat off-screen. Every render now re-fits *until the user pans or zooms*, after
+     which the view is theirs. The **Fit** button re-enables the mode.
+   - **Fit never zooms in.** A two-node graph blown up to fill the panel is unreadable, so
+     the scale is clamped at 1.
+   - **Zoom snaps to a ladder** (0.25 … 3) because fractional scales make the text soft.
+   - **Window listeners, not `setPointerCapture`.** Same effect — a drag survives the
+     cursor leaving the canvas — with less API surface and no capture to release.
+   - **A drag must not toggle a node.** Moving more than 3 px arms a capture-phase `click`
+     handler that swallows the synthetic click the browser fires on pointerup.
+   - **The cache cannot hold measured DOM elements.** On a cache hit `renderGraph` would
+     re-attach `click`/`keydown`/`mouseenter` to the *same* element instances, so one click
+     would toggle twice and cancel out. Measurement and rendering are now decoupled:
+     `measureGraph` only fills sizes and port positions and throws its elements away, and
+     `renderGraph` builds fresh ones from the same `renderNode`. "Measured == drawn" still
+     holds because `renderNode` is deterministic and `renderGraph` writes back the measured
+     width.
+   - Cache key is `traceIndex` plus the sorted collapsed set, LRU-bounded at 40. It is
+     dropped on `programflow:reset` (a new trace makes every index stale) and on a
+     `<body>` class mutation, which is how VS Code signals a theme change.
+
+   Verified in the browser against the 37-step `example.py` trace, no console errors:
+   auto-fit picks scale 0.5 for the 1167×1405 last step and centres it; wheel zoom walks
+   the ladder 1 → 1.1 → 1.25 → 1.5 and back while the graph point under the cursor stays
+   pinned to (−110, 40) exactly; a 60×48 drag from a node header pans by exactly that and
+   leaves the node expanded, while a clean click on the same header collapses it
+   (`aria-expanded="false"`, Expand all appears); Fit restores the framed transform.
+   Caching was proved by probe element: re-visiting a step repaints synchronously, a
+   never-visited step does not.
+
+   **Not verifiable in this harness:** the `ResizeObserver` that re-fits on panel resize.
+   The test page reports `visibilityState: "hidden"`, so the rendering pipeline is parked
+   and neither `requestAnimationFrame` nor `ResizeObserver` callbacks are ever delivered.
+   (Which is itself a confirmation of §6.6's third point.)
 7. **Styling pass**: theme variables, per-kind classes, neutral edges + hover highlighting.
 8. **Unit tests** in `src/test/unit` for the pure logic — no webview, no ELK run.
    *Done for the collapse filter*: `src/programflow-visualization/reachability.ts` plus

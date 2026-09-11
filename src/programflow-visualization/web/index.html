@@ -35,7 +35,10 @@
     </div>
 
     <!-- ELK-based visualization, see elk-task/elk-plan.md -->
-    <div id="elk-canvas" hidden></div>
+    <!-- #elk-viewport clips and receives the pan/zoom gestures, #elk-canvas is transformed -->
+    <div id="elk-viewport" hidden>
+      <div id="elk-canvas"></div>
+    </div>
   </div>
 
   <div class="row" id="bottom-area">
@@ -63,6 +66,7 @@
         <button class="margin-horizontal" id="nextButton" type="button" aria-label="Go to next step" title="Next step">&#9654</button>
         <button class="margin-horizontal" id="lastButton" type="button" aria-label="Go to last step" title="Last step">&#9197</button>
         <button class="margin-horizontal" id="expandAllButton" type="button" title="Expand every collapsed object" hidden>Expand all</button>
+        <button class="margin-horizontal" id="fitButton" type="button" title="Zoom to fit" hidden>Fit</button>
       </div>
     </div>
 

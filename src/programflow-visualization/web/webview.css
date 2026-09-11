@@ -206,6 +206,24 @@ body {
 /* ELK-based visualization. See elk-task/elk-plan.md 6.4.              */
 /* ------------------------------------------------------------------ */
 
+/* The viewport clips and owns the gestures; only #elk-canvas is transformed, so the
+   step controls and the stdout pane never scale. */
+#elk-viewport {
+  flex-grow: 1;
+  /* Without this the flex default min-height:auto lets the canvas stretch #viz. */
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  /* Stop the browser from claiming wheel/drag before the handlers see them. */
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+#elk-viewport.elk-panning {
+  cursor: grabbing;
+}
+
 .elk-canvas {
   position: relative;
 }

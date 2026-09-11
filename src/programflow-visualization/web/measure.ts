@@ -1,9 +1,9 @@
 // Offscreen measurement. See elk-task/elk-plan.md 6.2.
 //
-// ELK needs a width and a height for every node before it can lay anything out,
-// and our nodes are HTML, so the browser has to be asked. The elements measured
-// here are handed to graph-renderer.ts and reused verbatim, which is the only
-// way to guarantee that what was measured is what gets drawn.
+// ELK needs a width and a height for every node before it can lay anything out, and our
+// nodes are HTML, so the browser has to be asked. The elements built here are throwaway;
+// graph-renderer.ts builds its own from the same `renderNode`, which is what keeps the
+// measured size and the drawn size in agreement.
 import type { ElkNode } from "elkjs/lib/elk-api";
 import type { VizGraph } from "../graph-model";
 import { inputPortId, rowPortId } from "../graph-model";
@@ -47,9 +47,8 @@ export function ensureFontsReady(): Promise<void> {
 
 /**
  * Fills width/height on every node of `viz.graph` and positions its ports.
- * Returns the rendered elements by node id.
  */
-export function measureGraph(viz: VizGraph): Map<string, HTMLElement> {
+export function measureGraph(viz: VizGraph): void {
   const host = measureHost();
   const elements = new Map<string, HTMLElement>();
   const children: ElkNode[] = viz.graph.children ?? [];
@@ -108,5 +107,4 @@ export function measureGraph(viz: VizGraph): Map<string, HTMLElement> {
   }
 
   host.textContent = "";
-  return elements;
 }

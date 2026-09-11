@@ -1,10 +1,10 @@
 // Draws a laid-out graph. See elk-task/elk-plan.md 6.3.
 //
-// Takes the elements measure.ts already produced and positions them at the
-// coordinates ELK computed. Edges go into one SVG overlay behind the nodes.
+// Builds the node elements from the same `renderNode` measure.ts used, then places them at
+// the coordinates ELK computed. Edges go into one SVG overlay behind the nodes.
 import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
 import type { NodeModel } from "../graph-model";
-import { headerElement } from "./node-view";
+import { headerElement, renderNode } from "./node-view";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const MARGIN = 24;
@@ -55,7 +55,6 @@ export function renderGraph(
   container: HTMLElement,
   laidOut: ElkNode,
   models: Map<string, NodeModel>,
-  elements: Map<string, HTMLElement>,
   options: RenderOptions = {}
 ): void {
   container.textContent = "";
@@ -129,12 +128,11 @@ export function renderGraph(
   let objectsLeft = Number.POSITIVE_INFINITY;
 
   for (const child of children) {
-    const element = elements.get(child.id);
     const model = models.get(child.id);
-    if (!element || !model) {
+    if (!model) {
       continue;
     }
-    element.style.position = "absolute";
+    const element = renderNode(model);
     element.style.left = `${(child.x ?? 0) + MARGIN}px`;
     element.style.top = `${(child.y ?? 0) + offsetY}px`;
     element.style.width = `${child.width ?? 0}px`;

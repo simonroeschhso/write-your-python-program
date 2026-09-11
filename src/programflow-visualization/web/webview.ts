@@ -2,7 +2,8 @@
 import { HTMLGenerator } from "./html-generator";
 import LinkerLine from "linkerline";
 import type { Address, BackendTraceElem, FrontendTraceElem } from "../types";
-import { prewarm, renderStep } from "./elk-view";
+import { clearLayoutCache, prewarm, renderStep } from "./elk-view";
+import { attachPanZoom, type PanZoom } from "./pan-zoom";
 
 type ResetMsg = {
   command: "reset";
@@ -43,6 +44,10 @@ const useElk = (() => {
 
 /** Heap objects the user has folded away. Kept across steps on purpose. */
 const collapsed = new Set<Address>();
+
+let panZoom: PanZoom | undefined;
+/** Bounds of the last render, so the Fit button has something to fit to. */
+let lastBounds = { width: 0, height: 0 };
 
 type NavType = "first" | "prev" | "next" | "last";
 
@@ -124,6 +129,7 @@ function renderElk(elem: BackendTraceElem): Promise<void> {
   // A collapsed object can end up off-screen, so offer a way back without hunting for it.
   $("#expandAllButton").hidden = collapsed.size === 0;
   return renderStep($("#elk-canvas"), elem, collapsed, {
+    step: String(traceIndex),
     onToggle: (address) => {
       if (collapsed.has(address)) {
         collapsed.delete(address);
@@ -131,6 +137,10 @@ function renderElk(elem: BackendTraceElem): Promise<void> {
         collapsed.add(address);
       }
       void renderElk(trace[traceIndex]);
+    },
+    onBounds: (width, height) => {
+      lastBounds = { width, height };
+      panZoom?.autoFit(width, height);
     },
   }).catch((err) => {
     console.error("ELK layout failed:", err);
@@ -317,6 +327,8 @@ window.addEventListener("programflow:reset", (e: Event) => {
   const msg = (e as CustomEvent<ResetMsg>).detail;
   trace = msg.trace ?? [];
   traceComplete = !!msg.complete;
+  // A reset means a different trace, so every cached layout is keyed on stale indices.
+  clearLayoutCache();
   renderCurrent();
   postCurrentHighlight();
 });
@@ -333,7 +345,10 @@ function setupUi() {
   if (useElk) {
     $("#legacy-headers").hidden = true;
     $("#legacy-columns").hidden = true;
-    $("#elk-canvas").hidden = false;
+    $("#elk-viewport").hidden = false;
+    $("#fitButton").hidden = false;
+    panZoom = attachPanZoom($("#elk-viewport"), $("#elk-canvas"));
+    watchThemeChanges();
     // Warm elkjs up while the user is still reading the first step.
     void prewarm().then(renderCurrent);
   }
@@ -361,6 +376,9 @@ function setupUi() {
     collapsed.clear();
     renderCurrent();
   });
+  $("#fitButton").addEventListener("click", () => {
+    panZoom?.fit(lastBounds.width, lastBounds.height);
+  });
 
   // Slider input -> local navigation
   const slider = $("#traceSlider") as HTMLInputElement;
@@ -384,3 +402,18 @@ function setupUi() {
 }
 
 document.addEventListener("DOMContentLoaded", setupUi);
+
+/**
+ * VS Code signals a theme change by swapping the class on `<body>`. That changes the
+ * colours *and* potentially the font, so the cached layouts have to go (plan 6.5).
+ */
+function watchThemeChanges() {
+  const observer = new MutationObserver(() => {
+    clearLayoutCache();
+    renderCurrent();
+  });
+  observer.observe(document.body, {
+    attributes: true,
+    attributeFilter: ["class", "style"],
+  });
+}
