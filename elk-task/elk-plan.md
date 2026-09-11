@@ -34,12 +34,22 @@ VS Code side changes.
   `worker-src`, so `worker-src` falls back to `none`. → Use the synchronous bundled build
   `elkjs/lib/elk.bundled.js` (main thread, no worker). Revisit the worker build only if
   layout is too slow; that would also need `worker-src blob:;` in the CSP.
-- **Bundling.** `elk.bundled.js` is plain JS and bundles fine into `webview.js` via esbuild
-  (`scripts/build-web.mjs`); elkjs ships its own type declarations, so no `@types/*`
-  package. This is a *choice, not a constraint*: `script-src` includes `{{CSP_SOURCE}}` and
-  `copyStatic()` in `build-web.mjs` already copies assets into `localResourceRoots`, so if
-  elkjs's size hurts webview startup (measure in §7.1) shipping it as a separate
-  `<script src>` is an available fallback.
+- **Bundling, and minification is now mandatory.** `elk.bundled.js` is plain JS and bundles
+  fine into `webview.js` via esbuild; elkjs ships its own type declarations, so no
+  `@types/*` package. Measured by the spike (`elk-task/spike/spike.mjs`):
+
+  | | size |
+  | --- | --- |
+  | `webview.js` today | 161 KiB |
+  | elkjs bundled, unminified | 3423 KiB |
+  | elkjs bundled, minified | 1426 KiB |
+
+  esbuild is currently run **without** `minify`, so bundling elkjs as-is would grow the
+  webview payload 21×. `scripts/build-web.mjs` must set `minify: true` (at least for
+  non-watch builds) before elkjs goes in. Even then it is ~1.4 MiB, so if webview startup
+  suffers, the fallback is a separate `<script src>`: `script-src` includes
+  `{{CSP_SOURCE}}` and `copyStatic()` already copies assets into `localResourceRoots`, so
+  this stays a *choice, not a constraint*.
 - **`StackElem` has no line number**, so `example.elkt`'s `"createGradeList (line 36)"` is
   not derivable — only `BackendTraceElem.line` (the currently executing line) exists.
   Decided: no per-frame line, frame headers show the name only.
@@ -87,11 +97,21 @@ containers would add visual weight that isn't there. Instead pin frame nodes to 
 layer with `elk.layered.layering.layerConstraint: FIRST`: every heap object is then strictly
 right of every frame, while ELK compacts the rest freely. Flat also means no
 cross-hierarchy edges, so `hierarchyHandling: INCLUDE_CHILDREN` and the lowest-common-
-ancestor bookkeeping `example.elkt` needs both disappear. Frames never have incoming edges,
-so the constraint is unproblematic for them; and layered guarantees a node sits in a
-strictly later layer than any predecessor, so since after the collapse filter (§6.3) every
-rendered object has at least one incoming edge, no object can land in layer 0 beside the
-frames. The split stays well-defined without containers.
+ancestor bookkeeping `example.elkt` needs both disappear.
+
+**`layerConstraint: FIRST` forbids incoming edges**, and ELK enforces it by throwing:
+
+> `UnsupportedConfigurationException: Node 'root.frame:0' has its layer constraint set to
+> FIRST, but has at least one incoming edge that does not come from a FIRST_SEPARATE node.`
+
+That is fine for us — nothing ever points *at* a frame, so frames have no incoming edges by
+construction — but it has two consequences the spike confirmed. First, no object can slip
+into the frames layer: layered places a node in a strictly later layer than any predecessor,
+and after the collapse filter (§6.3) every rendered object has at least one incoming edge.
+The split therefore stays well-defined without containers. Second, **cycle breaking must
+stay `GREEDY`** (the default): it only reverses edges inside cycles, and a frame can never
+be in a cycle, so it can never acquire a reversed incoming edge. `INTERACTIVE` cycle
+breaking reverses by coordinate instead and *does* crash this way — see §6.5.
 
 **The `Frames` / `Objects` headers stay above their areas**, recomputed from the layout
 instead of fixed percentages: `framesRight = max(x + width)` over frame nodes,
@@ -169,7 +189,7 @@ dependency, and the `stackHTML` / `heapHTML` fields of `FrontendTraceElem`.
 a test helper**: it is the heap traversal §6.1 and §6.3 are built on. It lives one level
 above `web/` on purpose — `tsconfig.json` excludes `web/**`, so a copy there would be
 bundled by esbuild but never type-checked by `tsc` and not importable from the tests. Where
-it is, it is type-checked, unit-tested (§7.7) and still reachable from the bundle: esbuild
+it is, it is type-checked, unit-tested (§7.8) and still reachable from the bundle: esbuild
 resolves `../reachability` exactly as `web/html-generator.ts` already resolves `../types`.
 
 | Export | Use in the implementation |
@@ -177,6 +197,7 @@ resolves `../reachability` exactly as `web/html-generator.ts` already resolves `
 | `visibleAddresses(elem, collapsed)` | which object boxes `buildGraph` emits (§6.3) |
 | `outgoingRefs(heapValue)` | which edges to emit, and their per-cell origins (§5.2) |
 | `rootRefs(elem)` | the frame-variable → object edges |
+| `heapEntries(heap)` | iterating the heap as `[Address, HeapValue]` pairs |
 | `asRecord(mapLike)` | the `Map`-typed-but-plain-object workaround (§2), needed throughout the renderer |
 
 ### 6.1 Graph model (`graph-model.ts`)
@@ -201,21 +222,20 @@ resolves `../reachability` exactly as `web/html-generator.ts` already resolves `
 - Every node carries a `data.kind` tag (`frame`, `current-frame`, `list`, `tuple`, `set`,
   `dict`, `instance`, `collapsed`) that the renderer turns into CSS classes.
   **No colors or fonts in TS.**
-- Layout options, from `example.elkt`: `algorithm: layered`, `direction: RIGHT`,
-  `spacing.nodeNode`, `layered.spacing.nodeNodeBetweenLayers`, plus `edgeRouting: ORTHOGONAL`,
-  and `layered.considerModelOrder.strategy: NODES_AND_EDGES` for stability (§6.5).
+- Layout options, from `example.elkt` and the spike: `algorithm: layered`,
+  `direction: RIGHT`, `spacing.nodeNode`, `layered.spacing.nodeNodeBetweenLayers`,
+  `edgeRouting: ORTHOGONAL`, and cycle breaking left at its `GREEDY` default (§4).
+  `layered.considerModelOrder` stays **off** — it buys no stability and costs 2.5× (§6.5).
 - Nodes are emitted in a deterministic order — frames by stack index, objects by ascending
-  address — so that model order is meaningful and identical across steps (§6.5).
+  address. This, not a layout option, is what makes steps stable (§6.5).
 
-**Self-loops and back-edges are the weak spot of fixed-position ports.** `example-cycles.py`
-produces both: a self-referencing list is an ELK self-loop, and a two-object cycle is a
-back-edge under `direction: RIGHT`. With zero-size ports pinned to the east edge, layered's
-default routing for these may be unreadable. Settle it in the spike (§7.1) rather than at
-the end. Fallbacks, cheapest first: let a back-edge attach to the target's east side
-instead of the declared west input port, so it does not cross the whole node; for the
-self-loops, the `elk.layered.edgeRouting.selfLoop*` options (check the exact names against
-the installed elkjs version); and, failing both, route cycle edges by hand in the SVG
-overlay, since §6.3 already owns path construction.
+**Self-loops and back-edges work.** `example-cycles.py` produces both: a self-referencing
+list is an ELK self-loop, and a two-object cycle is a back-edge under `direction: RIGHT`.
+The spike laid out a self-loop plus a two-object cycle with FIXED_POS east ports and a
+declared west input port, and got clean orthogonal routes — self-loop 4 bends, back-edge 4
+bends, and **no bend point inside a node box it does not belong to**. No special handling
+needed. The one requirement this places on the model is in §4: cycle breaking must stay
+`GREEDY`, or the frame layer constraint throws.
 
 ### 6.2 Measurement (`measure.ts`)
 
@@ -292,31 +312,61 @@ kind) is a CSS change plus one attribute.
 
 ### 6.5 Stability across steps, performance, pan/zoom
 
-**Stability is the biggest UX risk of the whole change.** Layout is recomputed per trace
-step, and ELK is free to place objects anywhere, so step *n* → *n+1* can reshuffle the
-entire heap side and destroy the user's mental map. Today's flexbox at least keeps heap
-insertion order. Mitigations, in order of cost:
+**Stability: measured, and it is fine.** The worry was that recomputing layout per step
+would reshuffle the heap side and destroy the user's mental map. The spike measured three
+cases:
 
-1. Deterministic input: emit nodes sorted by stack index / heap address (§6.1) and enable
-   `layered.considerModelOrder.strategy: NODES_AND_EDGES`. Identical input then gives
-   identical output, and a step that only changes one value doesn't reshuffle anything.
-2. If that isn't enough, seed ELK with the previous step's coordinates
-   (`elk.interactiveLayout: true` plus `interactiveReferencePoint`), so layout drifts from
-   the last picture instead of starting fresh.
+| Case | Nodes that moved | Largest jump |
+| --- | --- | --- |
+| Only a value changes, structure identical | **0 of 217** | 0 px |
+| One element appended to a list | 81 of 90 | 94 px |
+| Real `example-trace-content.js` steps | 7 of 21 | 192 px |
 
-Verify in the spike (§7.1) by stepping through `example.py` and watching for jumps.
+So ELK does not churn: identical structure gives a pixel-identical layout. The movement in
+rows 2 and 3 is growth, not reshuffling — a box gets taller and its neighbours shift — and
+it is bounded. Deterministic node order (§6.1) is all that's needed.
 
-**Performance.** Layout runs on every navigation click, and the slider fires continuously
-while dragging.
+**The interactive-seeding fallback is withdrawn.** It was listed as mitigation 2; it is both
+unnecessary (above) and *incompatible with §4*: seeding coordinates and switching cycle
+breaking to `INTERACTIVE` makes ELK reverse an edge into a frame node, which immediately
+violates `layerConstraint: FIRST` and throws. Seeding only `crossingMinimization` and
+`nodePlacement` does not throw, but changes nothing (still 7 of 21, 180 px). Keep cycle
+breaking `GREEDY`.
 
+**`considerModelOrder` is dropped.** The plan justified it as the stability mechanism; the
+spike shows it is not — stability is identical with it set to `NONE`, the visual
+top-to-bottom order is unchanged, and it is the single most expensive option measured
+(101 nodes: 245 ms with, 99 ms without). Emit nodes in deterministic order and leave model
+order off.
+
+**Performance is the real problem.** Layout runs on every navigation click, and the slider
+fires continuously while dragging. Measured (Node 18, this machine; a browser will differ
+but the shape holds):
+
+| Graph | Layout time |
+| --- | --- |
+| 11 nodes | 58 ms |
+| 26 nodes | 82 ms |
+| 51 nodes | 137 ms |
+| 101 nodes | 245 ms |
+| 201 nodes | 1396 ms |
+
+The 100 ms budget breaks at roughly 40 nodes — well inside what a student program produces.
+Required measures:
+
+- **Drop `considerModelOrder`** (above): 101 nodes 245 ms → 99 ms. `thoroughness: 1` on top
+  gains only a little more (84 ms) and costs layout quality, so hold it in reserve.
+- **Pre-warm elkjs at webview init.** The first `layout()` call costs ~330 ms of JIT warm-up
+  versus ~27 ms steady state. Run one throwaway layout on a dummy graph when the webview
+  loads, so the user never pays it on a click.
 - Cache the layout result per `(traceIndex, collapsed-set)` key, LRU-bounded; stepping back
   and forth then costs nothing. Drop the whole cache whenever measurement premises change —
   a theme switch or an editor font-size change alters text metrics, so every cached layout
   becomes wrong. The existing `onDidChangeViewState` → `reset` path is the place to hook it.
 - Re-layout on the slider's `change` event, not `input`, so dragging doesn't queue dozens
   of layouts. Keep the line-highlight message on `input` as it is today.
-- Budget: if a step exceeds ~100 ms on the largest example, revisit (worker build, or
-  `layered.thoroughness` turned down).
+- If a heap still exceeds the budget, the remaining lever is the worker build, which needs
+  `worker-src blob:;` added to the CSP (§2).
 
 **Pan and zoom.** Doable, and probably necessary — `current.png` already exceeds the panel
 height and ELK output will be wider. No library needed:
@@ -353,26 +403,27 @@ height and ELK output will be wider. No library needed:
 
 Each step keeps the extension working.
 
-1. **Spike.** Add `elkjs`; build a graph from `example-trace-content.js` and render it in
-   browser dev mode (`npm run watch:web`, `out/programflow-visualization/web/index.web.html`).
-   Answer the four open questions here, not later: bundle size and layout time (§2, §6.5),
-   step-to-step stability (§6.5), and self-loop / back-edge routing with fixed-position
-   ports (§6.1) — the last one needs a hand-built cycle graph, since the recorded example
-   trace has none.
-2. **Model + node-view + measure + render** behind a flag; `html-generator.ts` stays as
+1. ~~**Spike.**~~ **Done** — `elk-task/spike/spike.mjs` (throwaway, re-runnable with
+   `node elk-task/spike/spike.mjs` after `npm run compile`). It measures bundle size,
+   layout time and scaling, step-to-step stability under three seeding variants, and
+   self-loop / back-edge routing. Results are folded into §2, §4, §6.1 and §6.5; the
+   headlines are: cycles route cleanly, stability is a non-issue, `considerModelOrder` must
+   go, minification is mandatory, and elkjs needs pre-warming.
+2. **Enable `minify` in `scripts/build-web.mjs`** before elkjs enters the bundle (§2).
+3. **Model + node-view + measure + render** behind a flag; `html-generator.ts` stays as
    fallback. `node-view.ts` comes first: `measure.ts` cannot be written without it.
-3. **Switch** `webview.ts` (`updateVisualization` / `updateRefArrows` / `updateIndent`) to
+4. **Switch** `webview.ts` (`updateVisualization` / `updateRefArrows` / `updateIndent`) to
    the new pipeline once output looks right.
-4. **Collapsing**: click handling + reachability filter (`visibleAddresses` already exists).
-5. **Pan/zoom + layout caching** (§6.5).
-6. **Styling pass**: theme variables, per-kind classes, neutral edges + hover highlighting.
-7. **Unit tests** in `src/test/unit` for the pure logic — no webview, no ELK run.
+5. **Collapsing**: click handling + reachability filter (`visibleAddresses` already exists).
+6. **Pan/zoom + layout caching + elkjs pre-warm** (§6.5).
+7. **Styling pass**: theme variables, per-kind classes, neutral edges + hover highlighting.
+8. **Unit tests** in `src/test/unit` for the pure logic — no webview, no ELK run.
    *Done for the collapse filter*: `src/programflow-visualization/reachability.ts` plus
    `src/test/unit/reachability.test.ts` (22 cases), run by `npm run test:unit`, which is
    now part of `npm test`. Still to add once it exists: `buildGraph` structure tests.
-8. **Cleanup**: delete `html-generator.ts`, drop `linkerline`, trim `FrontendTraceElem`,
+9. **Cleanup**: delete `html-generator.ts`, drop `linkerline`, trim `FrontendTraceElem`,
    update `src/programflow-visualization/README.md` (its diagram still shows
-   `html-generator.ts` → `innerHTML`).
+   `html-generator.ts` → `innerHTML`), and delete `elk-task/spike/`.
 
 ## 8. Decisions at a glance
 
@@ -392,16 +443,20 @@ Each step keeps the extension working.
 | No auto-collapse for long lists | §6.3 |
 | Neutral edges + hover highlighting instead of per-address hues | §6.4 |
 | Sizes measured from real DOM offscreen, not canvas text math | §6.2 |
-| Deterministic node order + model order for step-to-step stability | §6.5 |
+| Deterministic node order for step-to-step stability; no `considerModelOrder` | §6.5 |
+| Cycle breaking stays `GREEDY`; no interactive layout seeding | §4, §6.5 |
+| elkjs pre-warmed at webview init to hide ~330 ms of JIT | §6.5 |
+| esbuild `minify` enabled before elkjs enters the bundle | §2 |
 | Layout cached per step; slider re-lays out on `change`, not `input` | §6.5 |
 | Pan/zoom via one CSS transform on the canvas, plus zoom-to-fit | §6.5 |
 | Sync `elk.bundled.js`, no Web Worker (CSP) | §2 |
 | elkjs bundled into `webview.js`; separate-asset fallback stays available | §2 |
 
-Three risks to watch in the spike, all with a prepared fallback: step-to-step layout
-stability (§6.5 → interactive layout seeding), header-extent jitter (§4 → borderless
-containers), and self-loop / back-edge routing under fixed-position ports (§6.1 → east-side
-attachment, self-loop options, or hand-routed paths).
+The spike (§7.1) closed the three risks this section used to list. What remains open is
+**layout time on large heaps**: 100 ms breaks at ~40 nodes, and dropping `considerModelOrder`
+buys back roughly 2.5×, which covers ~100 nodes but not 200. If real student programs turn
+out to exceed that, the escalation is `layered.thoroughness`, then the worker build plus a
+CSP change.
 
 ## 9. Definition of done
 
@@ -450,7 +505,7 @@ student list hides edges but removes no nodes. Hence the other three.
 
 ### 9.3 Hygiene criteria
 
-9. `npm test` clean — compile, lint and the unit tests of §7.7.
+9. `npm test` clean — compile, lint and the unit tests of §7.8.
 10. Layout stays inside the §6.5 budget on the largest step of `example.py`, and a long
     trace does not grow memory without bound (layout cache is LRU-bounded).
 11. `html-generator.ts` deleted, `linkerline` removed from `package.json`,

@@ -94,6 +94,7 @@
 		"build": "npm run compile && npm run build:web"
 	},
 	"dependencies": {
+		"elkjs": "^0.12.0",
 		"linkerline": "^1.5.0",
 		"stringify-json": "^2.0.0",
 		"tmp": "^0.2.3",

@@ -11,7 +11,7 @@ type RefValue = { type: 'ref'; value: Address };
  * types.ts, but after the IPC/JSON round trip they are plain objects. Everything here
  * goes through this helper instead of `Map` methods.
  */
-function asRecord<T>(mapLike: unknown): Record<string, T> {
+export function asRecord<T>(mapLike: unknown): Record<string, T> {
   return (mapLike ?? {}) as Record<string, T>;
 }
 
