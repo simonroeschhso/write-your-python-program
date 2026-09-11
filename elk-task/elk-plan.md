@@ -409,12 +409,34 @@ Each step keeps the extension working.
    self-loop / back-edge routing. Results are folded into §2, §4, §6.1 and §6.5; the
    headlines are: cycles route cleanly, stability is a non-issue, `considerModelOrder` must
    go, minification is mandatory, and elkjs needs pre-warming.
-2. **Enable `minify` in `scripts/build-web.mjs`** before elkjs enters the bundle (§2).
-3. **Model + node-view + measure + render** behind a flag; `html-generator.ts` stays as
-   fallback. `node-view.ts` comes first: `measure.ts` cannot be written without it.
+2. ~~**Enable `minify` in `scripts/build-web.mjs`**~~ **Done** — watch builds stay readable,
+   production builds are minified. `webview.js` went 161 KiB → 112 KiB before elkjs, and
+   sits at 1555 KiB with it.
+3. ~~**Model + node-view + measure + render** behind a flag~~ **Done**. Files:
+   - `src/programflow-visualization/graph-model.ts` — `buildGraph`, `LAYOUT_OPTIONS`, id
+     helpers. It lives *next to* `reachability.ts`, not under `web/`, for the same reason:
+     `web/**` is excluded from the root `tsconfig.json`, so anything there cannot be
+     compiled to `out/` and therefore cannot be unit tested (§7.8).
+   - `web/node-view.ts` — `renderNode`, the single source of node markup.
+   - `web/measure.ts` — offscreen sizing; returns the elements it measured so the renderer
+     reuses them verbatim and sizes cannot drift.
+   - `web/graph-renderer.ts` — positions those elements, draws edges into one SVG, derives
+     the "Frames"/"Objects" bands from the node extents, wires collapse and hover.
+   - `web/elk-view.ts` — `prewarm()` and `renderStep()`, including the monotonic render
+     token that keeps a slow layout from overwriting a newer one.
+
+   Two supporting changes were needed: `skipLibCheck` in both `tsconfig.json`s, because
+   `elkjs/lib/elk-api.d.ts` does not survive strict checking, and a `compile:web` script
+   (`tsc -p src/programflow-visualization/web --noEmit`) wired into `npm test` — until now
+   nothing type-checked `web/**` at all.
+
+   The flag is `window.__PROGRAMFLOW_ELK__`, or `#elk` / `?elk=1` in web-dev mode. It
+   defaults to off, so `html-generator.ts` is still what ships.
 4. **Switch** `webview.ts` (`updateVisualization` / `updateRefArrows` / `updateIndent`) to
    the new pipeline once output looks right.
 5. **Collapsing**: click handling + reachability filter (`visibleAddresses` already exists).
+   *Largely in place from step 3*: header carets toggle `collapsed`, which survives
+   stepping. Still missing: keyboard focus order and a way to expand everything at once.
 6. **Pan/zoom + layout caching + elkjs pre-warm** (§6.5).
 7. **Styling pass**: theme variables, per-kind classes, neutral edges + hover highlighting.
 8. **Unit tests** in `src/test/unit` for the pure logic — no webview, no ELK run.

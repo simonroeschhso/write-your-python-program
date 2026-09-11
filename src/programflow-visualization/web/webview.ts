@@ -1,7 +1,8 @@
 // Render and control the program-flow visualization UI inside the webview
 import { HTMLGenerator } from "./html-generator";
 import LinkerLine from "linkerline";
-import type { BackendTraceElem, FrontendTraceElem } from "../types";
+import type { Address, BackendTraceElem, FrontendTraceElem } from "../types";
+import { prewarm, renderStep } from "./elk-view";
 
 type ResetMsg = {
   command: "reset";
@@ -22,6 +23,28 @@ let refLines: any[] = [];
 let trace: BackendTraceElem[] = [];
 let traceComplete = false;
 let traceIndex = 0;
+
+/**
+ * Opt-in switch for the ELK pipeline while it is being built (elk-task/elk-plan.md 7).
+ * Enable with `#elk` or `?elk=1` in web-dev mode, or `window.__PROGRAMFLOW_ELK__ = true`.
+ */
+const useElk = (() => {
+  const anyWin = window as any;
+  if (typeof anyWin.__PROGRAMFLOW_ELK__ === "boolean") {
+    return anyWin.__PROGRAMFLOW_ELK__ as boolean;
+  }
+  try {
+    return (
+      window.location.hash.includes("elk") ||
+      new URLSearchParams(window.location.search).get("elk") === "1"
+    );
+  } catch {
+    return false;
+  }
+})();
+
+/** Heap objects the user has folded away. Kept across steps on purpose. */
+const collapsed = new Set<Address>();
 
 type NavType = "first" | "prev" | "next" | "last";
 
@@ -69,11 +92,39 @@ function renderCurrent() {
   }
 
   const backendElem = trace[traceIndex];
+
+  if (useElk) {
+    updateStdout(backendElem.stdout);
+    void renderElk(backendElem);
+    return;
+  }
+
   const frontendElem = gen.generateHTML(backendElem);
 
   updateVisualization(frontendElem);
   updateIndent(frontendElem);
   updateRefArrows(frontendElem);
+}
+
+function updateStdout(output: string) {
+  const stdoutLog = $("#stdout-log");
+  stdoutLog.innerHTML = output;
+  stdoutLog.scrollTo(0, stdoutLog.scrollHeight);
+}
+
+function renderElk(elem: BackendTraceElem): Promise<void> {
+  return renderStep($("#elk-canvas"), elem, collapsed, {
+    onToggle: (address) => {
+      if (collapsed.has(address)) {
+        collapsed.delete(address);
+      } else {
+        collapsed.add(address);
+      }
+      void renderElk(trace[traceIndex]);
+    },
+  }).catch((err) => {
+    console.error("ELK layout failed:", err);
+  });
 }
 
 function postCurrentHighlight() {
@@ -252,6 +303,14 @@ window.addEventListener("programflow:append", (e: Event) => {
 
 
 function setupUi() {
+  if (useElk) {
+    $("#legacy-headers").hidden = true;
+    $("#legacy-columns").hidden = true;
+    $("#elk-canvas").hidden = false;
+    // Warm elkjs up while the user is still reading the first step.
+    void prewarm().then(renderCurrent);
+  }
+
   // Disable until first reset arrives
   setDisabled("#nextButton", true);
   setDisabled("#lastButton", true);

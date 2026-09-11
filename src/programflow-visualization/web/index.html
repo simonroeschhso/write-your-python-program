@@ -18,7 +18,7 @@
 
 <body>
   <div class="column scrollable" id="viz">
-    <div class="row">
+    <div class="row" id="legacy-headers">
       <div class="column floating-left">
         <div class="row title">Frames</div>
         <div class="divider"></div>
@@ -29,10 +29,13 @@
       </div>
     </div>
 
-    <div class="row">
+    <div class="row" id="legacy-columns">
       <div class="column floating-left floating-left-content" id="frames"></div>
       <div class="column floating-right floating-right-content" id="objects"></div>
     </div>
+
+    <!-- ELK-based visualization, see elk-task/elk-plan.md -->
+    <div id="elk-canvas" hidden></div>
   </div>
 
   <div class="row" id="bottom-area">

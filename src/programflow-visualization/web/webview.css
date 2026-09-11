@@ -10,6 +10,11 @@ body {
   box-sizing: border-box;
 }
 
+/* .row/.column set display, which would otherwise beat the UA [hidden] rule. */
+[hidden] {
+  display: none !important;
+}
+
 .floating-right {
   float: right;
   width: 65%;
@@ -195,4 +200,153 @@ body {
 
 #bottom-area button {
   line-height: 18px;
+}
+
+/* ------------------------------------------------------------------ */
+/* ELK-based visualization. See elk-task/elk-plan.md 6.4.              */
+/* ------------------------------------------------------------------ */
+
+.elk-canvas {
+  position: relative;
+}
+
+.elk-edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* The SVG spans the canvas and sits behind the nodes. */
+  pointer-events: none;
+}
+
+.elk-band {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
+  opacity: 0.6;
+  border-bottom: 1px solid var(--vscode-panel-border, #bbb);
+}
+
+.elk-node {
+  position: absolute;
+  /* Shrink to content, but never so wide that one long value dominates. */
+  width: max-content;
+  min-width: 120px;
+  max-width: 280px;
+  border: 1px solid var(--vscode-panel-border, rgb(209, 209, 209));
+  border-radius: 4px;
+  background-color: var(--vscode-editorWidget-background, rgba(56, 56, 56, 0.9));
+  color: var(--vscode-editorWidget-foreground, white);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.elk-node-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  font-weight: 600;
+  background-color: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.25));
+}
+
+.elk-collapsible {
+  cursor: pointer;
+}
+
+.elk-collapsible:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #4d64ff);
+  outline-offset: -1px;
+}
+
+.elk-caret {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+.elk-node-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Table layout keeps the key column aligned across rows while each row keeps a
+   box of its own -- measure.ts needs that box to place the row's port. */
+.elk-node-rows {
+  display: table;
+  width: 100%;
+}
+
+.elk-row {
+  display: table-row;
+}
+
+.elk-row-key,
+.elk-row-value {
+  display: table-cell;
+  padding: 2px 6px;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.elk-row-key {
+  text-align: right;
+  opacity: 0.75;
+  max-width: 110px;
+}
+
+.elk-row-value {
+  max-width: 180px;
+  border-left: 1px solid var(--vscode-panel-border, grey);
+}
+
+.elk-summary {
+  display: table-cell;
+  padding: 2px 6px;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* Frames keep the shared node background so the text stays legible in every
+   theme; only the left accent tells them apart. */
+.elk-frame {
+  border-left: 4px solid var(--vscode-descriptionForeground, grey);
+}
+
+.elk-current-frame {
+  border-left: 4px solid var(--vscode-focusBorder, #4d64ff);
+}
+
+.elk-edge {
+  fill: none;
+  stroke: var(--vscode-editorLineNumber-foreground, #888);
+  stroke-width: 1.5;
+}
+
+.elk-arrowhead {
+  fill: var(--vscode-editorLineNumber-foreground, #888);
+}
+
+.elk-edge-active {
+  stroke: var(--vscode-focusBorder, #4d64ff);
+  stroke-width: 2.5;
+}
+
+/* Hovering a node fades everything it is not connected to. */
+.elk-canvas.elk-dimming .elk-node:not(.elk-node-active) {
+  opacity: 0.45;
+}
+
+.elk-canvas.elk-dimming .elk-edge:not(.elk-edge-active) {
+  opacity: 0.2;
+}
+
+.elk-node-active {
+  border-color: var(--vscode-focusBorder, #4d64ff);
 }
