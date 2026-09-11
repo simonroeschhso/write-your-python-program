@@ -432,11 +432,28 @@ Each step keeps the extension working.
 
    The flag is `window.__PROGRAMFLOW_ELK__`, or `#elk` / `?elk=1` in web-dev mode. It
    defaults to off, so `html-generator.ts` is still what ships.
-4. **Switch** `webview.ts` (`updateVisualization` / `updateRefArrows` / `updateIndent`) to
-   the new pipeline once output looks right.
-5. **Collapsing**: click handling + reachability filter (`visibleAddresses` already exists).
-   *Largely in place from step 3*: header carets toggle `collapsed`, which survives
-   stepping. Still missing: keyboard focus order and a way to expand everything at once.
+4. ~~**Switch** `webview.ts` to the new pipeline~~ **Done**. ELK is now the default;
+   `html-generator.ts` survives only behind `window.__PROGRAMFLOW_ELK__ = false` / `#legacy`
+   until step 9 deletes it. Two things came out of the switch:
+   - The slider had to be split early, ahead of §6.5: `input` now only moves the counter,
+     stdout and the editor highlight, `change` triggers the layout. Without it a single
+     drag queues a layout per pixel.
+   - `updateStdout` had to be rewritten rather than reused, because the traceback was
+     appended inside `generateHTML`. It is now built with `textContent` + a `span`
+     instead of string-concatenated `innerHTML`.
+
+   Checked against a real 37-step trace of `elk-task/example.py`, generated with the
+   throwaway `elk-task/spike/make-trace.py` (writes into `out/`, never `src/`): 19 nodes,
+   38 edges, no console errors, scrubbing does not re-lay out, releasing does.
+5. ~~**Collapsing**~~ **Done**. Headers carry `role="button"`, `tabindex="0"` and a caret;
+   click and Enter/Space both toggle. `collapsed` lives in `webview.ts` and survives
+   stepping. An **Expand all** button appears next to the step controls whenever anything
+   is collapsed — without it a collapsed node that lands off-screen is unrecoverable.
+
+   Verified against `example-anonymous.py`, which exists precisely because *every* object in
+   `example.py` also has a global name and therefore never disappears: collapsing `group`
+   removes Anna and Ben (13 nodes → 11), collapsing `holder` keeps Cleo (she is `shared`),
+   collapsing `outer` removes Dan *and* the anonymous inner list. Expand all restores 13.
 6. **Pan/zoom + layout caching + elkjs pre-warm** (§6.5).
 7. **Styling pass**: theme variables, per-kind classes, neutral edges + hover highlighting.
 8. **Unit tests** in `src/test/unit` for the pure logic — no webview, no ELK run.

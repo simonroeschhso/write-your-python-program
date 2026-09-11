@@ -25,8 +25,9 @@ let traceComplete = false;
 let traceIndex = 0;
 
 /**
- * Opt-in switch for the ELK pipeline while it is being built (elk-task/elk-plan.md 7).
- * Enable with `#elk` or `?elk=1` in web-dev mode, or `window.__PROGRAMFLOW_ELK__ = true`.
+ * The ELK pipeline is the renderer (elk-task/elk-plan.md 7.4). `html-generator.ts` is kept
+ * as an escape hatch until it is deleted in the cleanup step; opt out with
+ * `window.__PROGRAMFLOW_ELK__ = false` or `#legacy` in web-dev mode.
  */
 const useElk = (() => {
   const anyWin = window as any;
@@ -34,12 +35,9 @@ const useElk = (() => {
     return anyWin.__PROGRAMFLOW_ELK__ as boolean;
   }
   try {
-    return (
-      window.location.hash.includes("elk") ||
-      new URLSearchParams(window.location.search).get("elk") === "1"
-    );
+    return !window.location.hash.includes("legacy");
   } catch {
-    return false;
+    return true;
   }
 })();
 
@@ -66,7 +64,7 @@ function clamp(n: number, min: number, max: number) {
 }
 
 //Rendering
-function renderCurrent() {
+function updateControls() {
   const max = Math.max(0, trace.length - 1);
   traceIndex = clamp(traceIndex, 0, max);
 
@@ -83,6 +81,10 @@ function renderCurrent() {
   setDisabled("#prevButton", traceIndex <= 0);
   setDisabled("#nextButton", traceIndex >= max);
   setDisabled("#lastButton", traceIndex >= max);
+}
+
+function renderCurrent() {
+  updateControls();
 
   // Nothing to show yet
   if (trace.length === 0) {
@@ -94,7 +96,7 @@ function renderCurrent() {
   const backendElem = trace[traceIndex];
 
   if (useElk) {
-    updateStdout(backendElem.stdout);
+    updateStdout(backendElem);
     void renderElk(backendElem);
     return;
   }
@@ -106,13 +108,21 @@ function renderCurrent() {
   updateRefArrows(frontendElem);
 }
 
-function updateStdout(output: string) {
+function updateStdout(elem: BackendTraceElem) {
   const stdoutLog = $("#stdout-log");
-  stdoutLog.innerHTML = output;
+  stdoutLog.textContent = elem.stdout;
+  if (elem.traceback !== undefined) {
+    const traceback = document.createElement("span");
+    traceback.className = "traceback-text";
+    traceback.textContent = elem.traceback;
+    stdoutLog.append(traceback);
+  }
   stdoutLog.scrollTo(0, stdoutLog.scrollHeight);
 }
 
 function renderElk(elem: BackendTraceElem): Promise<void> {
+  // A collapsed object can end up off-screen, so offer a way back without hunting for it.
+  $("#expandAllButton").hidden = collapsed.size === 0;
   return renderStep($("#elk-canvas"), elem, collapsed, {
     onToggle: (address) => {
       if (collapsed.has(address)) {
@@ -167,6 +177,23 @@ function navigate(type: NavType) {
 function slideTo(rawValue: string) {
   traceIndex = Number(rawValue) || 0;
   renderCurrent();
+  postCurrentHighlight();
+}
+
+/**
+ * While the slider is being dragged only the cheap parts follow along. Layout is far too
+ * expensive to run per `input` event (plan 6.5), so it waits for `change`.
+ */
+function scrubTo(rawValue: string) {
+  traceIndex = Number(rawValue) || 0;
+  if (!useElk) {
+    slideTo(rawValue);
+    return;
+  }
+  updateControls();
+  if (trace.length > 0) {
+    updateStdout(trace[traceIndex]);
+  }
   postCurrentHighlight();
 }
 
@@ -330,11 +357,18 @@ function setupUi() {
   $("#lastButton").addEventListener("click", () => {
     navigate("last");
   });
+  $("#expandAllButton").addEventListener("click", () => {
+    collapsed.clear();
+    renderCurrent();
+  });
 
   // Slider input -> local navigation
-  ($("#traceSlider") as HTMLInputElement).addEventListener("input", (e: Event) => {
-    const value = (e.target as HTMLInputElement).value;
-    slideTo(value);
+  const slider = $("#traceSlider") as HTMLInputElement;
+  slider.addEventListener("input", (e: Event) => {
+    scrubTo((e.target as HTMLInputElement).value);
+  });
+  slider.addEventListener("change", (e: Event) => {
+    slideTo((e.target as HTMLInputElement).value);
   });
 
   // Optional: example trace mode
