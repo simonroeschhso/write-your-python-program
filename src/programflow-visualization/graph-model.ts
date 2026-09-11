@@ -20,6 +20,12 @@ export type RowModel = {
   key: string;
   value: string;
   ref?: Address;
+  /**
+   * Set when the *key* is itself a reference, which only dicts can produce
+   * (`{(1, 2): "pair"}`). Such a key needs its own arrow, or the key object shows up
+   * with nothing pointing at it and ELK lays it out as a root, left of the frames.
+   */
+  keyRef?: Address;
   /** `return` rows are highlighted, as they are today. */
   isReturn?: boolean;
 };
@@ -45,7 +51,7 @@ export type VizGraph = {
 
 /**
  * Layout options settled by the spike (elk-task/spike/spike.mjs):
- * - cycleBreaking stays at its GREEDY default, or `layerConstraint: FIRST` throws
+ * - cycleBreaking stays at its GREEDY default, or the frames' layer constraint throws
  *   as soon as an edge is reversed into a frame (plan 4).
  * - considerModelOrder is deliberately absent: it buys no stability and costs 2.5x
  *   (plan 6.5). Stability comes from emitting nodes in a deterministic order.
@@ -62,6 +68,9 @@ export const frameNodeId = (index: number): string => `frame:${index}`;
 export const objectNodeId = (address: Address): string => `obj:${address}`;
 export const rowPortId = (nodeId: string, rowIndex: number): string =>
   `${nodeId}:${rowIndex}`;
+/** Second port on a dict row whose key is a reference. */
+export const keyPortId = (nodeId: string, rowIndex: number): string =>
+  `${nodeId}:${rowIndex}k`;
 export const inputPortId = (nodeId: string): string => `${nodeId}:in`;
 
 /** Primitive rendering, matching html-generator.getCorrectValueOf. */
@@ -80,7 +89,9 @@ function dictKeyLabel(key: Value | undefined): string {
   if (!key) {
     return "";
   }
-  return key.type === "ref" ? "" : formatValue(key);
+  // A reference key has no text of its own; the arrow leaving the key cell says
+  // what it is. The bracket keeps the cell from looking empty.
+  return key.type === "ref" ? "[key]" : formatValue(key);
 }
 
 function headerOf(heapValue: HeapValue): string {
@@ -109,10 +120,12 @@ export function rowsOfHeapValue(heapValue: HeapValue): RowModel[] {
       const values = asRecord<Value>(heapValue.value);
       return Object.keys(values).map((slot) => {
         const value = values[slot];
+        const key = keys[slot];
         return {
-          key: dictKeyLabel(keys[slot]),
+          key: dictKeyLabel(key),
           value: formatValue(value),
           ref: value.type === "ref" ? value.value : undefined,
+          keyRef: key?.type === "ref" ? key.value : undefined,
         };
       });
     }
@@ -159,6 +172,14 @@ function elkNodeFor(model: NodeModel, extraOptions?: Record<string, string>): El
 
   if (!model.collapsed) {
     model.rows.forEach((row, index) => {
+      if (row.keyRef !== undefined) {
+        ports.push({
+          id: keyPortId(model.id, index),
+          width: 0,
+          height: 0,
+          layoutOptions: { "elk.port.side": "EAST" },
+        });
+      }
       if (row.ref === undefined) {
         return;
       }
@@ -222,7 +243,11 @@ export function buildGraph(
     };
     models.set(id, model);
     children.push(
-      elkNodeFor(model, { "elk.layered.layering.layerConstraint": "FIRST" })
+      // FIRST_SEPARATE, not FIRST: frames get a layer of their own, which is what the
+      // Frames/Objects bands assume, and it measurably halves layout time (plan 7.7).
+      elkNodeFor(model, {
+        "elk.layered.layering.layerConstraint": "FIRST_SEPARATE",
+      })
     );
     model.rows.forEach((row, rowIndex) => {
       if (row.ref !== undefined && visible.has(row.ref)) {
@@ -257,6 +282,9 @@ export function buildGraph(
       continue;
     }
     rows.forEach((row, rowIndex) => {
+      if (row.keyRef !== undefined && visible.has(row.keyRef)) {
+        addEdge(keyPortId(id, rowIndex), row.keyRef);
+      }
       if (row.ref !== undefined && visible.has(row.ref)) {
         addEdge(rowPortId(id, rowIndex), row.ref);
       }

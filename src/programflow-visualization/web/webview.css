@@ -206,6 +206,36 @@ body {
 /* ELK-based visualization. See elk-task/elk-plan.md 6.4.              */
 /* ------------------------------------------------------------------ */
 
+/* Every colour below this line is named here and nowhere else. Inside VS Code the
+   --vscode-* variables win; the literals are only ever used by the browser dev mode
+   (index.web.html), which has no theme to inherit from.
+
+   --vscode-charts-* is the one palette VS Code exposes for "several things that must
+   look different from each other", which is exactly what the node kinds need. */
+:root {
+  --wypp-node-bg: var(--vscode-editorWidget-background, #252526);
+  --wypp-node-fg: var(--vscode-editorWidget-foreground, #ccc);
+  --wypp-node-border: var(--vscode-panel-border, #3c3c3c);
+  --wypp-header-bg: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.25));
+  --wypp-row-alt-bg: rgba(128, 128, 128, 0.07);
+  --wypp-focus: var(--vscode-focusBorder, #4d64ff);
+  --wypp-edge: var(--vscode-charts-lines, #808080);
+  --wypp-muted: var(--vscode-descriptionForeground, #9d9d9d);
+
+  /* Node kinds. */
+  --wypp-accent-frame: var(--vscode-descriptionForeground, #9d9d9d);
+  --wypp-accent-current-frame: var(--vscode-focusBorder, #4d64ff);
+  --wypp-accent-instance: var(--vscode-charts-blue, #4e95d9);
+  --wypp-accent-list: var(--vscode-charts-green, #89d185);
+  --wypp-accent-tuple: var(--vscode-charts-purple, #b180d7);
+  --wypp-accent-dict: var(--vscode-charts-orange, #d18616);
+  --wypp-accent-set: var(--vscode-charts-yellow, #cca700);
+
+  /* High-contrast themes define --vscode-contrastBorder and expect it to be honoured;
+     everywhere else it is empty and the fallback applies. */
+  --wypp-outline: var(--vscode-contrastBorder, var(--wypp-node-border));
+}
+
 /* The viewport clips and owns the gestures; only #elk-canvas is transformed, so the
    step controls and the stdout pane never scale. */
 #elk-viewport {
@@ -245,8 +275,8 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-size: 11px;
-  opacity: 0.6;
-  border-bottom: 1px solid var(--vscode-panel-border, #bbb);
+  color: var(--wypp-muted);
+  border-bottom: 1px solid var(--wypp-node-border);
 }
 
 .elk-node {
@@ -255,10 +285,12 @@ body {
   width: max-content;
   min-width: 120px;
   max-width: 280px;
-  border: 1px solid var(--vscode-panel-border, rgb(209, 209, 209));
+  border: 1px solid var(--wypp-outline);
+  /* Overwritten per kind below; declared here so every node reserves the same width. */
+  border-left: 4px solid var(--wypp-muted);
   border-radius: 4px;
-  background-color: var(--vscode-editorWidget-background, rgba(56, 56, 56, 0.9));
-  color: var(--vscode-editorWidget-foreground, white);
+  background-color: var(--wypp-node-bg);
+  color: var(--wypp-node-fg);
   font-size: 13px;
   overflow: hidden;
 }
@@ -269,7 +301,7 @@ body {
   gap: 4px;
   padding: 3px 6px;
   font-weight: 600;
-  background-color: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.25));
+  background-color: var(--wypp-header-bg);
 }
 
 .elk-collapsible {
@@ -277,13 +309,13 @@ body {
 }
 
 .elk-collapsible:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder, #4d64ff);
+  outline: 1px solid var(--wypp-focus);
   outline-offset: -1px;
 }
 
 .elk-caret {
   flex: 0 0 auto;
-  opacity: 0.8;
+  color: var(--wypp-muted);
 }
 
 .elk-node-title {
@@ -303,6 +335,12 @@ body {
   display: table-row;
 }
 
+/* Zebra striping earns its keep here: rows are one line tall and a wide node makes
+   it easy to read a key against the wrong value. */
+.elk-row:nth-child(even) {
+  background-color: var(--wypp-row-alt-bg);
+}
+
 .elk-row-key,
 .elk-row-value {
   display: table-cell;
@@ -315,44 +353,78 @@ body {
 
 .elk-row-key {
   text-align: right;
-  opacity: 0.75;
+  color: var(--wypp-muted);
   max-width: 110px;
+}
+
+/* A dict key that is itself a reference; the arrow leaving this cell says which. */
+.elk-key-ref {
+  font-style: italic;
+}
+
+/* Overrides the legacy `.return-value { color: blue }`, which is invisible in dark
+   themes. Goes away with html-generator.ts in the cleanup step. */
+.elk-row-key.return-value {
+  color: var(--wypp-accent-current-frame);
+  font-weight: 600;
 }
 
 .elk-row-value {
   max-width: 180px;
-  border-left: 1px solid var(--vscode-panel-border, grey);
+  border-left: 1px solid var(--wypp-node-border);
 }
 
 .elk-summary {
   display: table-cell;
   padding: 2px 6px;
   font-style: italic;
-  opacity: 0.7;
+  color: var(--wypp-muted);
 }
 
 /* Frames keep the shared node background so the text stays legible in every
    theme; only the left accent tells them apart. */
 .elk-frame {
-  border-left: 4px solid var(--vscode-descriptionForeground, grey);
+  border-left-color: var(--wypp-accent-frame);
 }
 
 .elk-current-frame {
-  border-left: 4px solid var(--vscode-focusBorder, #4d64ff);
+  border-left-color: var(--wypp-accent-current-frame);
+}
+
+/* One accent per heap type, so kind is readable at a glance and at small zoom
+   levels where the header text is no longer legible. */
+.elk-instance {
+  border-left-color: var(--wypp-accent-instance);
+}
+
+.elk-list {
+  border-left-color: var(--wypp-accent-list);
+}
+
+.elk-tuple {
+  border-left-color: var(--wypp-accent-tuple);
+}
+
+.elk-dict {
+  border-left-color: var(--wypp-accent-dict);
+}
+
+.elk-set {
+  border-left-color: var(--wypp-accent-set);
 }
 
 .elk-edge {
   fill: none;
-  stroke: var(--vscode-editorLineNumber-foreground, #888);
+  stroke: var(--wypp-edge);
   stroke-width: 1.5;
 }
 
 .elk-arrowhead {
-  fill: var(--vscode-editorLineNumber-foreground, #888);
+  fill: var(--wypp-edge);
 }
 
 .elk-edge-active {
-  stroke: var(--vscode-focusBorder, #4d64ff);
+  stroke: var(--wypp-focus);
   stroke-width: 2.5;
 }
 
@@ -366,5 +438,6 @@ body {
 }
 
 .elk-node-active {
-  border-color: var(--vscode-focusBorder, #4d64ff);
+  outline: 1px solid var(--wypp-focus);
+  outline-offset: -1px;
 }

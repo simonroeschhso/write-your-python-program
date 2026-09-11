@@ -496,7 +496,39 @@ Each step keeps the extension working.
    The test page reports `visibilityState: "hidden"`, so the rendering pipeline is parked
    and neither `requestAnimationFrame` nor `ResizeObserver` callbacks are ever delivered.
    (Which is itself a confirmation of §6.6's third point.)
-7. **Styling pass**: theme variables, per-kind classes, neutral edges + hover highlighting.
+7. ~~**Styling pass**: theme variables, per-kind classes, neutral edges + hover
+   highlighting.~~ **Done.** Every colour used by the new code is declared once in a
+   `:root` block of `--wypp-*` variables at the head of the ELK section of `webview.css`
+   and nowhere else, each mapping to a `--vscode-*` token with a literal fallback. Node
+   kinds are distinguished by a 4 px left accent taken from `--vscode-charts-*`
+   (frame/instance blue, list green, tuple purple, dict orange, set yellow), verified
+   distinct in the browser. Rows are zebra-striped with a translucent grey that works on a
+   light or a dark background. `--vscode-contrastBorder` drives the node outline so
+   high-contrast themes get a real border. Hover highlighting uses an `outline`, not
+   `border-color`, so it no longer clobbers the kind accent.
+
+   Two things this pass turned up:
+   - `[hidden]` did not hide `#elk-viewport`: the existing `.row { display: flex }` beats
+     the UA `[hidden]` rule, so `[hidden] { display: none !important }` is now set
+     explicitly.
+   - **A dict whose key is a reference had no incoming edge** (`{(1, 2): "even pair"}` in
+     `example-cycles.py`). `outgoingRefs` counts dict keys, so the tuples were *visible*,
+     but `buildGraph` only emitted an edge for the row's value. ELK correctly treated them
+     as graph roots and put them in layers 0 and 1 — **left of the Global frame** — which
+     made the Frames and Objects bands overlap and become meaningless. Two hours went into
+     suspecting `layerConstraint`, cycle breaking and port configuration; all three were
+     innocent (a synthetic graph proved the constraint is honoured even through cycles).
+     The graph was simply wrong. Fixed by giving such rows their own `keyPortId` port and
+     edge: the key cell now reads `[key]`, carries `.elk-key-ref`, and when a row has both
+     a key ref and a value ref the two ports sit at 1/3 and 2/3 of the row height so the
+     arrows do not leave from the same point. Band overlap is now 0 on every step of all
+     four test programs. Worth remembering: **when ELK puts a node somewhere absurd, check
+     the edges before you check the options.**
+
+   With the edges correct, `FIRST_SEPARATE` became the better layer constraint than
+   `FIRST` — frames get a layer to themselves, which is exactly what the two bands assume,
+   and it roughly halves layout time (`example.py`: worst step 74 ms → 42 ms, whole trace
+   1263 ms → 809 ms).
 8. **Unit tests** in `src/test/unit` for the pure logic — no webview, no ELK run.
    *Done for the collapse filter*: `src/programflow-visualization/reachability.ts` plus
    `src/test/unit/reachability.test.ts` (22 cases), run by `npm run test:unit`, which is
@@ -514,7 +546,7 @@ Each step keeps the extension working.
 | Rows modelled as fixed-position ports on the east edge | §5.1 |
 | Edge source = row port, target = declared west input port | §6.1 |
 | Node markup lives in one `node-view.ts`, shared by measure and render | §6 |
-| Flat graph, frames pinned to first layer, no outer containers | §4 |
+| Flat graph, frames pinned to a separate first layer, no outer containers | §4, §7.7 |
 | `Frames` / `Objects` headers stay, positioned from layout extents | §4 |
 | No per-frame line number in frame headers | §2 |
 | Collapse persists across steps; address-reuse caveat accepted | §6.3 |
@@ -593,3 +625,30 @@ student list hides edges but removes no nodes. Hence the other three.
 
 "Runs through `example.py` without errors" is criterion 1 of 11 — it proves the pipeline
 works, not that the feature does.
+
+### 9.4 Manual verification in the real webview — do this before calling it finished
+
+Most of §9.2 was checked headlessly by serving `out/programflow-visualization/web/` over
+`http.server` and driving it with Playwright. That harness has hard limits, so the
+following have **never actually been exercised** and must be walked through by hand in a
+running extension host (F5 → open a `.py` file → *Show Program Flow*):
+
+1. **Resize the panel.** The `ResizeObserver` re-fit in `pan-zoom.ts` is unverified: the
+   test page reports `visibilityState: "hidden"`, so neither `requestAnimationFrame` nor
+   `ResizeObserver` callbacks are ever delivered there. Drag the editor/panel split and
+   confirm the graph re-fits while untouched, and stays put once you have panned.
+2. **Real wheel and real mouse drag.** `page.mouse.wheel()` and `page.mouse.down()` never
+   reach the page in the harness, so every gesture was tested with *synthetic*
+   `WheelEvent`/`PointerEvent`s. Confirm with a real trackpad and a real mouse, including
+   that a drag ending on a node header does not collapse it.
+3. **Themes.** Switch between a light, a dark and a high-contrast theme. The harness has no
+   `--vscode-*` values at all, so only the literal fallbacks were ever rendered: the
+   per-kind accents, the zebra stripe, the edge colour and the high-contrast border are all
+   unproven against real tokens (criterion 7).
+4. **Theme-switch invalidation.** Changing the theme must repaint with new colours and not
+   serve a stale cached layout — that path runs through the `<body>` class
+   `MutationObserver` in `webview.ts`, which only fires inside VS Code.
+5. **The non-visual behaviour of criterion 8:** editor line highlighting as you step,
+   stdout, the traceback of `example-error.py`, and trace caching across reopening.
+6. **A real student program**, not one of the four curated examples — the layout-time risk
+   at the end of §8 is about heap size, and the examples top out at 20 nodes.

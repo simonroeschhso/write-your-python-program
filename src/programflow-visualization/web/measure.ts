@@ -6,7 +6,7 @@
 // measured size and the drawn size in agreement.
 import type { ElkNode } from "elkjs/lib/elk-api";
 import type { VizGraph } from "../graph-model";
-import { inputPortId, rowPortId } from "../graph-model";
+import { inputPortId, keyPortId, rowPortId } from "../graph-model";
 import { renderNode, headerElement, rowElements } from "./node-view";
 
 const HOST_ID = "elk-measure-host";
@@ -78,15 +78,31 @@ export function measureGraph(viz: VizGraph): void {
     child.height = height;
 
     const model = viz.nodes.get(child.id);
-    const rowCenters = rowElements(element).map((row) => {
+    const rowBoxes = rowElements(element).map((row) => {
       const box = row.getBoundingClientRect();
-      return box.top + box.height / 2 - nodeBox.top;
+      return { top: box.top - nodeBox.top, height: box.height };
     });
     const header = headerElement(element);
     const headerBox = header?.getBoundingClientRect();
     const headerCenter = headerBox
       ? headerBox.top + headerBox.height / 2 - nodeBox.top
       : height / 2;
+
+    /**
+     * A dict row whose key is a reference has two outgoing edges. Splitting the row
+     * into thirds keeps their start points apart; a row with one edge keeps the
+     * centre, which is where the eye expects it.
+     */
+    const portY = (rowIndex: number, isKey: boolean, split: boolean): number => {
+      const box = rowBoxes[rowIndex];
+      if (!box) {
+        return Math.round(height / 2);
+      }
+      if (!split) {
+        return Math.round(box.top + box.height / 2);
+      }
+      return Math.round(box.top + (isKey ? box.height / 3 : (2 * box.height) / 3));
+    };
 
     for (const port of child.ports ?? []) {
       if (port.id === inputPortId(child.id)) {
@@ -95,14 +111,21 @@ export function measureGraph(viz: VizGraph): void {
         port.y = Math.round(headerCenter);
         continue;
       }
-      const rowIndex = (model?.rows ?? []).findIndex(
-        (_, index) => rowPortId(child.id, index) === port.id
-      );
       port.x = width;
-      port.y =
-        rowIndex >= 0 && rowCenters[rowIndex] !== undefined
-          ? Math.round(rowCenters[rowIndex])
-          : Math.round(height / 2);
+      const rows = model?.rows ?? [];
+      const keyIndex = rows.findIndex(
+        (_, index) => keyPortId(child.id, index) === port.id
+      );
+      const rowIndex =
+        keyIndex >= 0
+          ? keyIndex
+          : rows.findIndex((_, index) => rowPortId(child.id, index) === port.id);
+      if (rowIndex < 0) {
+        port.y = Math.round(height / 2);
+        continue;
+      }
+      const row = rows[rowIndex];
+      port.y = portY(rowIndex, keyIndex >= 0, row.keyRef !== undefined && row.ref !== undefined);
     }
   }
 
